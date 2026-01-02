@@ -1,0 +1,16 @@
+# compiled executables
+a.out
+
+# emacs auto-save files
+\#*#
+
+# emacs lock files
+.#*
+
+# emacs backup files
+*.org~
+
+# org mode latex files
+*/ltximg/*
+*.tex
+*.pdf

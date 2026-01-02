@@ -1,0 +1,381 @@
+#+title: Testing the Order of FV-Approximations
+#+author: Marian Domanski
+#+date: <2025-12-30 Tue 18:25>
+#+startup: overview
+#+startup: latexpreview
+#+startup: inlineimages
+
+§ 4.7.1 of [cite:@ferzigerComputationalMethodsFluid2019]
+
+* Interpolation
+
+** 2nd order CDS
+
+\[
+\phi_e = \phi_E\lambda_e + \phi_P(1 - \lambda_e)
+\]
+
+where
+
+\[
+\lambda_e = \frac{x_e - x_P}{x_E - x_P}
+\]
+
+** Fourth-order CDS
+
+\[
+\phi_e = \frac{9\phi_P + 9\phi_E - \phi_W - \phi_{EE}}{16}
+\]
+
+* Integration
+
+** Midpoint
+
+\[
+F_{\mathrm{e}} = \int_{S_{\mathrm{e}}} f \mathrm{d} S = \bar{f_{\mathrm{e}}}S_{\mathrm{e}} \approx f_{\mathrm{e}}S_{\mathrm{e}}
+\]
+
+** Simpson's Rule
+
+\[
+F_{\mathrm{e}} = \int_{S_{\mathrm{e}}} \mathrm{d}S \approx \frac{S_{\mathrm{e}}}{6}(f_{\mathrm{ne}} + 4f_{\mathrm{e}} + f_{\mathrm{se}})
+\]
+
+* Test Midpoint
+:PROPERTIES:
+:header-args:julia: :results none :tangle "testomp.jl"
+:END:
+
+Test the order of 2D midpoint-rule surface integral approximation Integrating function $\phi = -2x + 3x^2 - 7x^3 + x^4 + 5y^4$ along line $x=0$, from $y=0$ to $y=1$, using exact and approximate variable value at face centroid.
+
+#+begin_src julia
+  using DelimitedFiles
+#+end_src
+
+** Define the polynomial function
+
+\[
+\phi = -2x + 3x^2 - 7x^3 + x^4 + 5y^4
+\]
+
+#+begin_src julia
+  ϕ(x, y) = -2.0*x + 3.0*x^2 - 7.0*x^3 + x^4 + 5.0*y^4
+#+end_src
+
+** Integration
+*** Set up the results array
+
+#+begin_src julia
+  cols = ["Δx", "sume", "sum2", "sum4", "esume", "esum2", "esum4"]
+
+  ly = 1.0  #length of the domain in the y-direction
+
+  nys = 2 .^(0:5)  # number of cells in the y-direction
+
+  ointegral = fill(NaN, length(nys), length(cols))
+
+  for idx in 1:size(ointegral, 1)
+#+end_src
+
+*** Compute the length of each cell
+
+#+begin_src julia
+  ny = nys[idx]
+
+  Δy = ly / ny  # compute the length of each cell
+  Δx = Δy
+#+end_src
+
+*** Compute the y-coordinates of the face centroids
+
+\[
+y_f = \frac{1}{2}\Delta y + (i - 1)\Delta y
+\]
+
+#+begin_src julia
+  # face centroid coordinates
+  i = 1:ny
+  yf = 0.5*Δy .+ (i .- 1)*Δy
+  xf = 0.0
+#+end_src
+
+*** Compute $\phi$ at cell centroids
+
+Compute $\phi$ at the cell centroids to the left and to the right of cell face $e$.
+
+#+begin_src julia
+  xₗ₂ = -1.5*Δx
+  xₗ₁ = -0.5*Δx
+  xᵣ₁ =  0.5*Δx
+  xᵣ₂ =  1.5*Δx
+
+  ϕₗ₂ = ϕ.(xₗ₂, yf)
+  ϕₗ₁ = ϕ.(xₗ₁, yf)
+  ϕᵣ₁ = ϕ.(xᵣ₁, yf)
+  ϕᵣ₂ = ϕ.(xᵣ₂, yf)
+#+end_src
+
+*** Compute $\phi$ at the face
+
+*The exact value*
+The value of $\phi$ at the face
+
+#+begin_src julia
+  ϕₑₓ = ϕ.(xf, yf)
+#+end_src
+
+*Second order CDS*
+
+\[
+\phi_e = \frac{\phi_E + \phi_P}{2}
+\]
+
+#+begin_src julia
+  ϕᶜᵈ² = 0.5 * (ϕₗ₁ + ϕᵣ₁)
+#+end_src
+
+*Fourth-order CDS*
+
+\[
+\phi_e = \frac{9\phi_P + 9\phi_E - \phi_W - \phi_{EE}}{16}
+\]
+
+#+begin_src julia
+  ϕᶜᵈ⁴ = (9.0 * ϕₗ₁ + 9.0 * ϕᵣ₁ - ϕₗ₂ - ϕᵣ₂)/16.0
+#+end_src
+
+*** Compute the results
+
+Start filling in the results. Begin with grid spacing $\Delta x$.
+
+#+begin_src julia
+  ointegral[idx, 1] = Δx  # grid spacing
+#+end_src
+
+Compute the surface integral approximation of the convective flux.
+
+\[
+\Phi(x) = \int_{S_\mathrm{e}}\phi(x,y) dy
+\]
+
+#+begin_src julia
+  global ointegral[idx, 2] = sum(ϕₑₓ .* Δy)
+  global ointegral[idx, 3] = sum(ϕᶜᵈ² .* Δy)
+  global ointegral[idx, 4] = sum(ϕᶜᵈ⁴ .* Δy)
+#+end_src
+
+*** Compute the error.
+
+The exact flux is equal to $l_y = 1$.
+\[
+\Phi(0) = \int\limits_0^{l_y}5y^4 = l_y
+\]
+
+#+begin_src julia
+    global ointegral[idx, 5] = ly - ointegral[idx, 2]
+    global ointegral[idx, 6] = ly - ointegral[idx, 3]
+    global ointegral[idx, 7] = ly - ointegral[idx, 4]
+#+end_src
+
+*** Write the results
+
+End the loop and write the results
+
+#+begin_src julia
+  end
+
+  open("ointegral", "w") do io
+      writedlm(io, reshape(cols, 1, :), '\t')
+      writedlm(io, ointegral, '\t')
+  end
+#+end_src
+
+** Interpolation
+*** Set up the results array
+#+begin_src julia
+  cols = ["Δx", "ϕₑₓ", "cd2", "cd4", "ecd2", "ecd4"]
+
+  Δxs = 1.0 ./ 2 .^(1:6)
+
+  ointerpol = fill(NaN, length(Δxs), length(cols))
+
+  x0 = 0.0
+  yf = 0.5
+
+  for idx in 1:size(ointerpol, 1)
+#+end_src
+
+*** Compute $\phi$ at the neighbor nodes
+
+#+begin_src julia
+  Δx = Δxs[idx]
+
+  xₗ₂ = -1.5*Δx
+  xₗ₁ = -0.5*Δx
+  xᵣ₁ =  0.5*Δx
+  xᵣ₂ =  1.5*Δx
+
+  ϕₗ₂ = ϕ.(xₗ₂, yf)
+  ϕₗ₁ = ϕ.(xₗ₁, yf)
+  ϕᵣ₁ = ϕ.(xᵣ₁, yf)
+  ϕᵣ₂ = ϕ.(xᵣ₂, yf)
+#+end_src
+
+*** Compute $\phi$ at the face center
+
+*The exact value*
+The value of $\phi$ at the face
+
+#+begin_src julia
+  ϕₑₓ = ϕ.(x0, yf)
+#+end_src
+
+*Second order CDS*
+
+\[
+\phi_e = \frac{\phi_E + \phi_P}{2}
+\]
+
+#+begin_src julia
+  ϕᶜᵈ² = 0.5 * (ϕₗ₁ + ϕᵣ₁)
+#+end_src
+
+*Fourth-order CDS*
+
+\[
+\phi_e = \frac{9\phi_P + 9\phi_E - \phi_W - \phi_{EE}}{16}
+\]
+
+#+begin_src julia
+  ϕᶜᵈ⁴ = (9.0 * ϕₗ₁ + 9.0 * ϕᵣ₁ - ϕₗ₂ - ϕᵣ₂)/16.0
+#+end_src
+
+#+begin_src julia
+  ointerpol[idx, 1] = Δx
+  ointerpol[idx, 2] = ϕₑₓ
+  ointerpol[idx, 3] = ϕᶜᵈ²
+  ointerpol[idx, 4] = ϕᶜᵈ⁴
+#+end_src
+
+*** Compute errors
+
+#+begin_src julia
+  ointerpol[idx, 5] = (ϕₑₓ - ϕᶜᵈ²)/ϕₑₓ
+  ointerpol[idx, 6] = (ϕₑₓ - ϕᶜᵈ⁴)/ϕₑₓ
+#+end_src
+
+*** Write the results
+
+#+begin_src julia
+  end
+
+  open("ointerpol", "w") do io
+      writedlm(io, reshape(cols, 1, :), '\t')
+      writedlm(io, ointerpol, '\t')
+  end
+#+end_src
+
+** Plot the results
+
+*** Interpolation
+
+#+begin_src gnuplot :file ointerpol.png :results graphics
+  reset
+  set datafile commentschars "#"
+
+  set multiplot layout 1,2
+
+  unset grid
+
+  # --- left panel: values ---
+  set logscale x
+  unset logscale y
+  set xlabel "Δx"
+  set ylabel "Variable value"
+
+  plot \
+       "ointerpol" using 1:2 with lines title "Exact", \
+       "ointerpol" using 1:3 with lines title "CD2", \
+       "ointerpol" using 1:4 with lines title "CD4"
+
+  # --- right panel: errors ---
+  set yrange [1e-5:100]
+  set logscale x
+  set logscale y
+  set xlabel "Δx"
+  set ylabel "Error (%)"
+
+  set ytics 10
+  set mytics 10
+  set ytics add (    \
+       "100."   100, \
+       "10.0"    10, \
+       "1.00"     1, \
+       "0.10"   0.1, \
+       "0.01"  0.01, \
+       "1e-3"  1e-3, \
+       "1e-4"  1e-4, \
+       "1e-5"  1e-5  \
+  )
+
+  plot \
+       "ointerpol" using 1:(100*abs($5)) with lines title "CD2", \
+       "ointerpol" using 1:(100*abs($6)) with lines title "CD4"
+
+  unset multiplot
+#+end_src
+
+#+RESULTS:
+[[file:ointerpol.png]]
+
+*** Integration
+
+#+begin_src gnuplot :file ointegral.png :results graphics
+  reset
+  set datafile commentschars "#"
+
+  set multiplot layout 1,2
+
+  unset grid
+
+  # --- left panel: values ---
+  set logscale x
+  unset logscale y
+  set xlabel "Δx"
+  set ylabel "Variable value"
+
+  plot \
+       "ointegral" using 1:2 with lines title "Exact", \
+       "ointegral" using 1:3 with lines title "CD2", \
+       "ointegral" using 1:4 with lines title "CD4"
+
+  # --- right panel: errors ---
+  set yrange [1e-3:100]
+  set logscale x
+  set logscale y
+  set xlabel "Δx"
+  set ylabel "Error (%)"
+
+  set ytics 10
+  set mytics 10
+  set ytics add (    \
+       "100."   100, \
+       "10.0"    10, \
+       "1.00"     1, \
+       "0.10"   0.1, \
+       "0.01"  0.01, \
+       "1e-3"  1e-3, \
+       "1e-4"  1e-4, \
+       "1e-5"  1e-5  \
+  )
+
+  plot \
+       "ointegral" using 1:(100*abs($5)) with lines title "Exact", \
+       "ointegral" using 1:(100*abs($6)) with lines title "CD2", \
+       "ointegral" using 1:(100*abs($7)) with lines title "CD4"
+
+  unset multiplot
+#+end_src
+
+#+RESULTS:
+[[file:ointegral.png]]
